@@ -69,14 +69,15 @@ async def add_var(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str)
         except ValueError as exc:
             await update.effective_message.reply_text(str(exc))
             return
+        variable_id = variable.id
 
     if kind == "recursive":
         await update.effective_message.reply_text(
-            f"Fragment '{name}' agregado (id {variable.id})."
+            f"Fragment '{name}' agregado (id {variable_id})."
         )
     else:
         await update.effective_message.reply_text(
-            f"Variable '{name}' ({kind}) guardada (id {variable.id})."
+            f"Variable '{name}' ({kind}) guardada (id {variable_id})."
         )
 
 

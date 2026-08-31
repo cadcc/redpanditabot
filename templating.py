@@ -43,6 +43,8 @@ def invalid_date_message(value: str) -> str:
 
 
 def _elapsed_years(date: datetime, now: datetime) -> int:
+    if date > now:
+        date, now = now, date
     years = now.year - date.year
     if (now.month, now.day) < (date.month, date.day):
         years -= 1
@@ -50,6 +52,8 @@ def _elapsed_years(date: datetime, now: datetime) -> int:
 
 
 def _elapsed_months(date: datetime, now: datetime) -> int:
+    if date > now:
+        date, now = now, date
     months = (now.year - date.year) * 12 + (now.month - date.month)
     if now.day < date.day:
         months -= 1
@@ -59,11 +63,11 @@ def _elapsed_months(date: datetime, now: datetime) -> int:
 _ELAPSED_FUNCS: dict[str, Callable[[datetime, datetime], int]] = {
     "years": _elapsed_years,
     "months": _elapsed_months,
-    "weeks": lambda date, now: (now - date).days // 7,
-    "days": lambda date, now: (now - date).days,
-    "hours": lambda date, now: int((now - date).total_seconds() // 3600),
-    "minutes": lambda date, now: int((now - date).total_seconds() // 60),
-    "seconds": lambda date, now: int((now - date).total_seconds()),
+    "weeks": lambda date, now: abs(now - date).days // 7,
+    "days": lambda date, now: abs(now - date).days,
+    "hours": lambda date, now: int(abs(now - date).total_seconds() // 3600),
+    "minutes": lambda date, now: int(abs(now - date).total_seconds() // 60),
+    "seconds": lambda date, now: int(abs(now - date).total_seconds()),
 }
 
 
@@ -151,26 +155,55 @@ def resolve_variables_by_name(session: Session, chat_id: int, name: str) -> list
     )
 
 
-def _render_recursive(
-    session: Session, chat_id: int, name: str, arg: str | None, seen: frozenset[str]
-) -> str:
+@dataclass(frozen=True)
+class TextSpan:
+    """The rendered-string offsets [start, end) produced by a single {name}
+    token backed by a 'text' variable, plus that variable's id. Only 'text'
+    variables get a span: their rendered output equals their stored value
+    verbatim, so a position in the rendered string maps back to an editable
+    slice of the variable."""
+
+    start: int
+    end: int
+    variable_id: int
+
+
+def _render_recursive_with_spans(
+    session: Session, chat_id: int, name: str, arg: str | None, seen: frozenset[str],
+    offset: int,
+) -> tuple[str, list[TextSpan]]:
     separator = arg if arg is not None else ""
     new_seen = seen | {name}
     parts = []
-    for row in resolve_variables_by_name(session, chat_id, name):
+    spans: list[TextSpan] = []
+    cur_offset = offset
+    for i, row in enumerate(resolve_variables_by_name(session, chat_id, name)):
+        if i > 0:
+            cur_offset += len(separator)
         if row.type == "recursive":
-            parts.append(_interpolate_string(session, chat_id, row.value, new_seen))
+            rendered, sub_spans = _interpolate_string_with_spans(
+                session, chat_id, row.value, new_seen, cur_offset
+            )
         else:
             kind = VARIABLE_KINDS.get(row.type)
             if kind is None:
                 raise TemplateError(f"Tipo de variable desconocido: '{row.type}'.")
-            parts.append(kind.render(row.value, None))
-    return separator.join(parts)
+            rendered = kind.render(row.value, None)
+            sub_spans = (
+                [TextSpan(cur_offset, cur_offset + len(rendered), row.id)]
+                if row.type == "text"
+                else []
+            )
+        parts.append(rendered)
+        spans.extend(sub_spans)
+        cur_offset += len(rendered)
+    return separator.join(parts), spans
 
 
-def _render_name(
-    session: Session, chat_id: int, name: str, arg: str | None, seen: frozenset[str]
-) -> str:
+def _render_name_with_spans(
+    session: Session, chat_id: int, name: str, arg: str | None, seen: frozenset[str],
+    offset: int,
+) -> tuple[str, list[TextSpan]]:
     if name in seen:
         raise TemplateError(f"Referencia circular detectada en la variable '{name}'.")
 
@@ -179,28 +212,54 @@ def _render_name(
         raise TemplateError(f"La variable '{name}' no existe.")
 
     if variable.type == "recursive":
-        return _render_recursive(session, chat_id, name, arg, seen)
+        return _render_recursive_with_spans(session, chat_id, name, arg, seen, offset)
 
     kind = VARIABLE_KINDS.get(variable.type)
     if kind is None:
         raise TemplateError(f"Tipo de variable desconocido: '{variable.type}'.")
-    return kind.render(variable.value, arg)
+    rendered = kind.render(variable.value, arg)
+    if variable.type == "text":
+        return rendered, [TextSpan(offset, offset + len(rendered), variable.id)]
+    return rendered, []
 
 
-def _interpolate_string(
-    session: Session, chat_id: int, template: str, seen: frozenset[str]
-) -> str:
-    def replace(match: re.Match) -> str:
+def _interpolate_string_with_spans(
+    session: Session, chat_id: int, template: str, seen: frozenset[str], offset: int = 0
+) -> tuple[str, list[TextSpan]]:
+    parts = []
+    spans: list[TextSpan] = []
+    pos = 0
+    cur_offset = offset
+    for match in TOKEN_RE.finditer(template):
+        literal = template[pos:match.start()]
+        parts.append(literal)
+        cur_offset += len(literal)
         name, arg = match.group(1), match.group(2)
-        return _render_name(session, chat_id, name, arg, seen)
+        rendered, sub_spans = _render_name_with_spans(
+            session, chat_id, name, arg, seen, cur_offset
+        )
+        parts.append(rendered)
+        spans.extend(sub_spans)
+        cur_offset += len(rendered)
+        pos = match.end()
+    parts.append(template[pos:])
+    return "".join(parts), spans
 
-    return TOKEN_RE.sub(replace, template)
+
+def interpolate_with_spans(
+    session: Session, chat, template: str | None = None
+) -> tuple[str, list[TextSpan]]:
+    """Like interpolate(), but also returns a TextSpan per {name} token
+    backed by a 'text' variable, giving the offsets that token's rendered
+    output occupies in the returned string."""
+    tmpl = chat.chat_title if template is None else template
+    if tmpl is None:
+        raise TemplateError("No hay un template configurado para este grupo.")
+    return _interpolate_string_with_spans(session, chat.id, tmpl, frozenset())
 
 
 def interpolate(session: Session, chat, template: str | None = None) -> str:
     """Render a chat's title template. Pass `template` explicitly to
     validate/preview a candidate template before it's stored on `chat`."""
-    tmpl = chat.chat_title if template is None else template
-    if tmpl is None:
-        raise TemplateError("No hay un template configurado para este grupo.")
-    return _interpolate_string(session, chat.id, tmpl, frozenset())
+    rendered, _ = interpolate_with_spans(session, chat, template=template)
+    return rendered

@@ -5,6 +5,8 @@ from telegram import Update
 from telegram.constants import ChatType, ParseMode
 from telegram.ext import ContextTypes
 
+from config import SUPERADMIN_USER_IDS
+
 logger = logging.getLogger(__name__)
 
 ADMIN_STATUSES = ("administrator", "creator")
@@ -16,6 +18,9 @@ ADMIN_ONLY_MESSAGE = "Solo los administradores del grupo pueden hacer eso."
 
 
 async def require_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    if update.effective_user.id in SUPERADMIN_USER_IDS:
+        return True
+
     member = await context.bot.get_chat_member(
         update.effective_chat.id, update.effective_user.id
     )
