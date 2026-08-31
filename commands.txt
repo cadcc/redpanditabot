@@ -1,0 +1,19 @@
+start - Muestra un mensaje de bienvenida y cómo empezar
+help - Lista todos los comandos y explica la sintaxis de templates
+ping - Verifica que el bot esté funcionando
+get_title - Muestra el template de título configurado en este grupo
+title - Define el template del título del grupo
+set_title - Define el template del título del grupo
+text - Crea o reemplaza una var de texto literal
+year - Crea o reemplaza una var que cuenta años desde una fecha
+month - Crea o reemplaza una var que cuenta meses desde una fecha
+week - Crea o reemplaza una var que cuenta semanas desde una fecha
+day - Crea o reemplaza una var que cuenta días desde una fecha
+hour - Crea o reemplaza una var que cuenta horas desde una fecha
+minute - Crea o reemplaza una var que cuenta minutos desde una fecha
+second - Crea o reemplaza una var que cuenta segundos desde una fecha
+fragment - Agrega un fragmento de template combinable y reutilizable
+list_vars - Lista las vars del grupo, o las que coincidan con un nombre
+rm_var - Elimina una var por id, o todos los fragments (pide confirmación)
+pin - Fija el mensaje respondido (usa "!" para notificar)
+unpin - Desfija el mensaje actualmente fijado
