@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 from db import Session, get_or_create_chat
 from models import Chat, Variable
 from permissions import admin_only, group_only
-from templating import VARIABLE_KINDS
+from templating import DATE_KINDS, VARIABLE_KINDS
 
 logger = logging.getLogger(__name__)
 
@@ -65,19 +65,22 @@ async def add_var(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str)
             session, update.effective_chat.id, update.effective_chat.type
         )
         try:
-            variable = _store_variable(session, chat, name, kind, raw_value)
+            _store_variable(session, chat, name, kind, raw_value)
         except ValueError as exc:
             await update.effective_message.reply_text(str(exc))
             return
-        variable_id = variable.id
 
     if kind == "recursive":
+        await update.effective_message.reply_text(f"Fragment '{name}' agregado.")
+    elif kind in DATE_KINDS:
+        # Date variables confirm with the number they render right now.
+        current = VARIABLE_KINDS[kind].render(raw_value, None)
         await update.effective_message.reply_text(
-            f"Fragment '{name}' agregado (id {variable_id})."
+            f"Variable '{name}' ({kind}) guardada. Valor actual: {current} {kind}"
         )
     else:
         await update.effective_message.reply_text(
-            f"Variable '{name}' ({kind}) guardada (id {variable_id})."
+            f"Variable '{name}' ({kind}) guardada."
         )
 
 
