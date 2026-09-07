@@ -8,7 +8,7 @@ from permissions import admin_only
 
 logger = logging.getLogger(__name__)
 
-PHOTO_CAPTION_PREFIX = "/photo"
+PHOTO_CAPTION_PATTERN = r"^/photo"
 PHOTO_ERROR_MESSAGE = (
     "No pude cambiar la foto del grupo. ¿Soy administrador con permiso para "
     "cambiar la foto?"
@@ -17,10 +17,6 @@ PHOTO_ERROR_MESSAGE = (
 
 @admin_only
 async def set_photo_from_caption(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    caption = update.effective_message.caption or ""
-    if not caption.startswith(PHOTO_CAPTION_PREFIX):
-        return
-
     largest_photo = update.effective_message.photo[-1]
 
     try:

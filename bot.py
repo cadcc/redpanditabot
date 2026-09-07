@@ -68,7 +68,10 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("unpin", pin.unpin))
 
     application.add_handler(
-        MessageHandler(filters.PHOTO & filters.CAPTION, photo.set_photo_from_caption)
+        MessageHandler(
+            filters.PHOTO & filters.CaptionRegex(photo.PHOTO_CAPTION_PATTERN),
+            photo.set_photo_from_caption,
+        )
     )
 
     if config.FUN_COMMANDS_ENABLED:
