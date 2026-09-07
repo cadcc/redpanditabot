@@ -5,13 +5,13 @@ get_title - Muestra el template de título configurado en este grupo
 title - Define el template del título del grupo
 set_title - Define el template del título del grupo
 text - Crea o reemplaza una var de texto literal
-year - Crea o reemplaza una var que cuenta años desde una fecha
-month - Crea o reemplaza una var que cuenta meses desde una fecha
-week - Crea o reemplaza una var que cuenta semanas desde una fecha
-day - Crea o reemplaza una var que cuenta días desde una fecha
-hour - Crea o reemplaza una var que cuenta horas desde una fecha
-minute - Crea o reemplaza una var que cuenta minutos desde una fecha
-second - Crea o reemplaza una var que cuenta segundos desde una fecha
+year - Crea o reemplaza una var que cuenta años completos respecto a una fecha
+month - Crea o reemplaza una var que cuenta meses completos respecto a una fecha
+week - Crea o reemplaza una var que cuenta semanas completos respecto a una fecha
+day - Crea o reemplaza una var que cuenta días completos respecto a una fecha
+hour - Crea o reemplaza una var que cuenta horas completos respecto a una fecha
+minute - Crea o reemplaza una var que cuenta minutos completos respecto a una fecha
+second - Crea o reemplaza una var que cuenta segundos completos respecto a una fecha
 fragment - Agrega un fragmento de template combinable y reutilizable
 list_vars - Lista las vars del grupo, o las que coincidan con un nombre
 rm_var - Elimina una var por id, o todos los fragments (pide confirmación)

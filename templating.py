@@ -1,4 +1,5 @@
 import re
+from calendar import monthrange
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable
@@ -13,6 +14,11 @@ DATE_FORMATS = [
     "%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M", "%d-%m-%Y",
     "%d%m%Y",
 ]
+
+# Units that denote a whole day or more. When the stored value carries no
+# time, these count between calendar dates so they flip at midnight; the
+# finer units still need an instant, and use midnight of that date.
+DAY_OR_COARSER = ("years", "months", "weeks", "days")
 
 INVALID_DATE_HINT = (
     "Formatos aceptados: DD/MM/YYYY, DD-MM-YYYY, DDMMYYYY, "
@@ -29,46 +35,76 @@ class TemplateError(Exception):
     argument, circular fragment reference, etc."""
 
 
-def parse_date_value(value: str) -> datetime | None:
+def parse_date_input(value: str) -> tuple[datetime, bool] | None:
+    """The parsed date plus whether the input carried no time of day (in
+    which case strptime defaulted it to midnight)."""
     for fmt in DATE_FORMATS:
         try:
-            return datetime.strptime(value, fmt)
+            return datetime.strptime(value, fmt), "%H" not in fmt
         except ValueError:
             continue
     return None
+
+
+def parse_date_value(value: str) -> datetime | None:
+    parsed = parse_date_input(value)
+    return None if parsed is None else parsed[0]
 
 
 def invalid_date_message(value: str) -> str:
     return f"Fecha inválida '{value}'. {INVALID_DATE_HINT}"
 
 
-def _elapsed_years(date: datetime, now: datetime) -> int:
-    if date > now:
-        date, now = now, date
-    years = now.year - date.year
-    if (now.month, now.day) < (date.month, date.day):
-        years -= 1
-    return years
+# Every date variable answers the same question: how many whole periods of
+# this unit separate the date from now. Direction doesn't matter (a past date
+# and a future one the same distance away render the same number), and a unit
+# only reaches 1 once a full period has actually passed, counted from the
+# date's own time of day -- or from midnight when the value carries no time,
+# so "01/01/2000" ticks at midnight in both directions.
+
+
+def _shift_months(date: datetime, months: int) -> datetime:
+    """`date` moved by `months` calendar months, clamping the day to the end
+    of the target month (31/01 + 1 month -> 28/02, or 29/02 on a leap year)."""
+    total = date.month - 1 + months
+    year = date.year + total // 12
+    month = total % 12 + 1
+    day = min(date.day, monthrange(year, month)[1])
+    return date.replace(year=year, month=month, day=day)
 
 
 def _elapsed_months(date: datetime, now: datetime) -> int:
     if date > now:
         date, now = now, date
     months = (now.year - date.year) * 12 + (now.month - date.month)
-    if now.day < date.day:
+    if _shift_months(date, months) > now:
         months -= 1
     return months
 
 
+def _elapsed_by_seconds(seconds_per_unit: int) -> Callable[[datetime, datetime], int]:
+    return lambda date, now: int(abs(now - date).total_seconds()) // seconds_per_unit
+
+
 _ELAPSED_FUNCS: dict[str, Callable[[datetime, datetime], int]] = {
-    "years": _elapsed_years,
+    "years": lambda date, now: _elapsed_months(date, now) // 12,
     "months": _elapsed_months,
-    "weeks": lambda date, now: abs(now - date).days // 7,
-    "days": lambda date, now: abs(now - date).days,
-    "hours": lambda date, now: int(abs(now - date).total_seconds() // 3600),
-    "minutes": lambda date, now: int(abs(now - date).total_seconds() // 60),
-    "seconds": lambda date, now: int(abs(now - date).total_seconds()),
+    "weeks": _elapsed_by_seconds(7 * 86400),
+    "days": _elapsed_by_seconds(86400),
+    "hours": _elapsed_by_seconds(3600),
+    "minutes": _elapsed_by_seconds(60),
+    "seconds": _elapsed_by_seconds(1),
 }
+
+
+def elapsed(unit: str, date: datetime, now: datetime, date_only: bool) -> int:
+    if date_only and unit in DAY_OR_COARSER:
+        # `date` is already midnight; anchoring `now` there too makes the
+        # count a difference of calendar dates, which is what a value with
+        # no time of day means -- and what makes it flip at midnight even
+        # when the date is in the future.
+        now = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return _ELAPSED_FUNCS[unit](date, now)
 
 
 def _parse_offset(arg: str | None) -> int:
@@ -84,16 +120,17 @@ def _parse_offset(arg: str | None) -> int:
 
 def _make_date_kind(unit: str) -> "VariableKind":
     def parse(raw: str) -> str:
-        if parse_date_value(raw) is None:
+        if parse_date_input(raw) is None:
             raise ValueError(invalid_date_message(raw))
         return raw
 
     def render(value: str, arg: str | None) -> str:
-        date = parse_date_value(value)
-        if date is None:
+        parsed = parse_date_input(value)
+        if parsed is None:
             raise TemplateError(invalid_date_message(value))
+        date, date_only = parsed
         offset = _parse_offset(arg)
-        count = _ELAPSED_FUNCS[unit](date, datetime.now()) + offset
+        count = elapsed(unit, date, datetime.now(), date_only) + offset
         return str(count)
 
     return VariableKind(parse=parse, render=render)
