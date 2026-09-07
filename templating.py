@@ -27,7 +27,17 @@ INVALID_DATE_HINT = (
 
 DATE_KINDS = ("years", "months", "weeks", "days", "hours", "minutes", "seconds")
 
-TOKEN_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}(?:\(([^)]*)\))?")
+# A variable name and the {name}(arg) token that reads it back share one
+# character class, so a name that can't be written as a token is rejected at
+# creation time instead of quietly never rendering.
+NAME_PATTERN = r"[a-zA-Z_][a-zA-Z0-9_]*"
+NAME_RE = re.compile(NAME_PATTERN)
+TOKEN_RE = re.compile(r"\{(" + NAME_PATTERN + r")\}(?:\(([^)]*)\))?")
+
+INVALID_NAME_HINT = (
+    "Debe empezar con una letra (a-z, sin tildes) o guion bajo, "
+    "y seguir con letras, números o guiones bajos."
+)
 
 
 class TemplateError(Exception):
@@ -49,6 +59,14 @@ def parse_date_input(value: str) -> tuple[datetime, bool] | None:
 def parse_date_value(value: str) -> datetime | None:
     parsed = parse_date_input(value)
     return None if parsed is None else parsed[0]
+
+
+def is_valid_variable_name(name: str) -> bool:
+    return NAME_RE.fullmatch(name) is not None
+
+
+def invalid_name_message(name: str) -> str:
+    return f"Nombre inválido '{name}'. {INVALID_NAME_HINT}"
 
 
 def invalid_date_message(value: str) -> str:

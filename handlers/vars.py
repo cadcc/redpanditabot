@@ -7,7 +7,12 @@ from telegram.ext import ContextTypes
 from db import Session, get_or_create_chat
 from models import Chat, Variable
 from permissions import admin_only, group_only
-from templating import DATE_KINDS, VARIABLE_KINDS
+from templating import (
+    DATE_KINDS,
+    VARIABLE_KINDS,
+    invalid_name_message,
+    is_valid_variable_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +28,7 @@ KIND_COMMANDS = {
     "recursive": "fragment",
 }
 
-RM_VAR_USAGE = "Uso: /rm_var <id> | /rm_var all_fragments"
+RM_VAR_USAGE = "Uso: /rm_var <id> | /rm_var <nombre> | /rm_var all_fragments"
 
 
 def _usage_for(kind: str) -> str:
@@ -59,6 +64,10 @@ async def add_var(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str)
 
     name = context.args[0]
     raw_value = " ".join(context.args[1:])
+
+    if not is_valid_variable_name(name):
+        await update.effective_message.reply_text(invalid_name_message(name))
+        return
 
     with Session() as session:
         chat = get_or_create_chat(
@@ -130,7 +139,10 @@ async def list_vars(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text("\n".join(lines))
 
 
-def parse_rm_var_target(args: list[str]) -> tuple[str, int | None]:
+def parse_rm_var_target(args: list[str]) -> tuple[str, int | str | None]:
+    """The target as (kind, value). Ids and names can't be confused: a name
+    never starts with a digit. "all_fragments" stays the reserved wipe token,
+    so a variable actually named that has to be removed by id."""
     if len(args) != 1:
         raise ValueError(RM_VAR_USAGE)
     token = args[0]
@@ -138,13 +150,15 @@ def parse_rm_var_target(args: list[str]) -> tuple[str, int | None]:
         return ("all_fragments", None)
     if token.lstrip("-").isdigit():
         return ("id", int(token))
+    if is_valid_variable_name(token):
+        return ("name", token)
     raise ValueError(RM_VAR_USAGE)
 
 
 @admin_only
 async def rm_var(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
-        target_type, var_id = parse_rm_var_target(context.args)
+        target_type, target = parse_rm_var_target(context.args)
     except ValueError as exc:
         await update.effective_message.reply_text(str(exc))
         return
@@ -155,18 +169,42 @@ async def rm_var(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
         if target_type == "id":
-            variable = session.get(Variable, var_id)
+            variable = session.get(Variable, target)
             if variable is None or variable.chat_id != chat.id:
                 await update.effective_message.reply_text(
-                    f"No existe una variable con id {var_id} en este grupo."
+                    f"No existe una variable con id {target} en este grupo."
                 )
                 return
             name = variable.name
             session.delete(variable)
             session.commit()
             await update.effective_message.reply_text(
-                f"Variable #{var_id} ('{name}') eliminada."
+                f"Variable #{target} ('{name}') eliminada."
             )
+            return
+
+        if target_type == "name":
+            # A name can hold several rows (fragments accumulate), so this
+            # removes every one of them.
+            result = session.execute(
+                delete(Variable).where(
+                    Variable.chat_id == chat.id, Variable.name == target
+                )
+            )
+            session.commit()
+            deleted = result.rowcount
+            if not deleted:
+                await update.effective_message.reply_text(
+                    f"No existe una variable con el nombre '{target}' en este grupo."
+                )
+            elif deleted == 1:
+                await update.effective_message.reply_text(
+                    f"Variable '{target}' eliminada."
+                )
+            else:
+                await update.effective_message.reply_text(
+                    f"Se eliminaron {deleted} variables con el nombre '{target}'."
+                )
             return
 
         count = session.scalar(

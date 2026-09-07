@@ -14,6 +14,6 @@ minute - Crea o reemplaza una var que cuenta minutos completos respecto a una fe
 second - Crea o reemplaza una var que cuenta segundos completos respecto a una fecha
 fragment - Agrega un fragmento de template combinable y reutilizable
 list_vars - Lista las vars del grupo, o las que coincidan con un nombre
-rm_var - Elimina una var por id, o todos los fragments (pide confirmación)
+rm_var - Elimina una var por id o nombre, o todos los fragments (pide confirmación)
 pin - Fija el mensaje respondido (usa "!" para notificar)
 unpin - Desfija el mensaje actualmente fijado
